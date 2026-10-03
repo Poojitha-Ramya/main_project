@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from backend.agents.writer_agent import WriterAgent
     from backend.agents.reviewer_agent import ReviewerAgent
     from backend.agents.orchestrator import AgentOrchestrator
+    from backend.agents.chat_agent import SummaryChatAgent
 
 __all__ = [
     "ManagerAgent",
@@ -32,6 +33,7 @@ __all__ = [
     "WriterAgent",
     "ReviewerAgent",
     "AgentOrchestrator",
+    "SummaryChatAgent",
 ]
 
 
@@ -57,4 +59,7 @@ def __getattr__(name: str):
     if name == "AgentOrchestrator":
         from backend.agents import orchestrator
         return orchestrator.AgentOrchestrator
+    if name == "SummaryChatAgent":
+        from backend.agents import chat_agent
+        return chat_agent.SummaryChatAgent
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

@@ -37,7 +37,15 @@ import {
   Share2,
   ListFilter,
   Settings,
-  Paperclip
+  Paperclip,
+  MessageSquare,
+  Send,
+  Bot,
+  User,
+  Trash2,
+  HelpCircle,
+  Maximize2,
+  Minimize2
 } from 'lucide-react'
 import './App.css'
 
@@ -125,7 +133,7 @@ function MascotLogo({ size = 52 }) {
 // =========================================================================
 // UNIVERSAL APPLICATION TOP NAVIGATION HEADER
 // =========================================================================
-function AppHeader({ page, navigateTo, uploadedDocsCount, result }) {
+function AppHeader({ page, navigateTo, uploadedDocsCount, result, isChatOpen, setIsChatOpen }) {
   return (
     <header className="app-top-header">
       <div
@@ -186,6 +194,17 @@ function AppHeader({ page, navigateTo, uploadedDocsCount, result }) {
             >
               <FileText size={14} />
               <span>Report</span>
+            </button>
+
+            <button
+              type="button"
+              className={`header-nav-btn ${isChatOpen ? 'header-nav-active' : ''}`}
+              onClick={() => setIsChatOpen && setIsChatOpen(!isChatOpen)}
+              title="Toggle Floating Chat Assistant to clarify doubts on summary"
+            >
+              <MessageSquare size={14} />
+              <span>Chat Assistant</span>
+              {isChatOpen && <span className="header-count-pill" style={{ background: '#10b981', color: '#fff' }}>Open</span>}
             </button>
 
             <button
@@ -324,8 +343,318 @@ const SUGGESTIONS = [
   'CRISPR gene editing clinical trial results'
 ]
 
+const CHAT_DOUBT_STARTERS = [
+  'Can you simplify the key conclusions of this summary?',
+  'What evidence or data supports the primary claim?',
+  'What limitations or challenges are discussed in the summary?',
+  'Explain the technical terms and methodologies mentioned in the summary.'
+]
+
+// =========================================================================
+// FLOATING CHATBOT WIDGET COMPONENT (Round Logo Button + Small Box Window)
+// =========================================================================
+function FloatingChatWidget({
+  isOpen,
+  setIsOpen,
+  isExpanded,
+  setIsExpanded,
+  chatMessages,
+  chatInput,
+  setChatInput,
+  chatLoading,
+  chatCopiedId,
+  chatInputRef,
+  chatMessagesEndRef,
+  handleSendChatMessage,
+  handleCopyChatAnswer,
+  handleClearChat,
+  result
+}) {
+  const [tooltipVisible, setTooltipVisible] = useState(false)
+
+  // Auto-scroll when messages update or loading state changes
+  useEffect(() => {
+    if (isOpen && chatMessagesEndRef?.current) {
+      chatMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [chatMessages, chatLoading, isOpen, chatMessagesEndRef])
+
+  // Focus textarea when opened
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => {
+        if (chatInputRef?.current) {
+          chatInputRef.current.focus()
+        }
+      }, 150)
+    }
+  }, [isOpen, chatInputRef])
+
+  const userMessagesCount = chatMessages.filter((m) => m.role === 'user').length
+
+  return (
+    <div className="floating-chat-root">
+      {/* Small Box Floating Chat Window */}
+      {isOpen && (
+        <aside
+          id="floating-chat-box"
+          className={`floating-chat-box ${isExpanded ? 'chat-box-expanded' : ''}`}
+          role="dialog"
+          aria-label="Research Assistant Chatbot"
+        >
+          {/* Header */}
+          <div className="chat-box-header">
+            <div className="chat-box-header-left">
+              <div className="chat-box-avatar">
+                <MascotLogo size={28} />
+                <span className="chat-box-status-indicator" title="AI Ready" />
+              </div>
+              <div className="chat-box-title-info">
+                <div className="chat-box-title-row">
+                  <span className="chat-box-title">Research Assistant</span>
+                  <span className="chat-box-badge">AI Grounded</span>
+                </div>
+                <div className="chat-box-subtitle" title={result?.topic || 'Mini Researcher Assistant'}>
+                  {result?.topic
+                    ? `Clarifying "${result.topic.length > 26 ? result.topic.slice(0, 26) + '...' : result.topic}"`
+                    : 'Clarify doubts & verify report findings'}
+                </div>
+              </div>
+            </div>
+
+            <div className="chat-box-controls">
+              <button
+                type="button"
+                className="chat-ctrl-btn"
+                onClick={handleClearChat}
+                title="Clear chat history"
+              >
+                <Trash2 size={14} />
+              </button>
+              <button
+                type="button"
+                className="chat-ctrl-btn"
+                onClick={() => setIsExpanded(!isExpanded)}
+                title={isExpanded ? 'Default size' : 'Expand window'}
+              >
+                {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+              <button
+                type="button"
+                className="chat-ctrl-btn chat-ctrl-close"
+                onClick={() => setIsOpen(false)}
+                title="Close chatbot"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Context & Guardrail Ribbon */}
+          <div className="chat-box-ribbon">
+            <ShieldCheck size={13} className="ribbon-icon" />
+            <span className="ribbon-text">
+              {result?.report
+                ? 'Answers strictly grounded in your synthesis report'
+                : 'Run research to enable strict summary-grounded Q&A'}
+            </span>
+          </div>
+
+          {/* Messages Stream */}
+          <div className="chat-box-messages" id="chat-box-messages-scroll">
+            {/* Quick Starters if result exists */}
+            {result?.report && (
+              <div className="chat-box-starters">
+                <div className="starters-header-row">
+                  <Sparkles size={11} color="var(--primary-light)" />
+                  <span>Suggested doubts &amp; inquiries:</span>
+                </div>
+                <div className="starters-scroll-row">
+                  {CHAT_DOUBT_STARTERS.map((starter, sIdx) => (
+                    <button
+                      key={sIdx}
+                      type="button"
+                      className="starter-box-chip"
+                      onClick={() => handleSendChatMessage(starter)}
+                      disabled={chatLoading}
+                    >
+                      <span>{starter}</span>
+                      <ArrowRight size={10} className="starter-chip-icon" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {chatMessages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`chat-box-msg-row ${msg.role === 'user' ? 'msg-row-user' : 'msg-row-assistant'}`}
+              >
+                {msg.role === 'assistant' && (
+                  <div className="chat-box-msg-avatar">
+                    <Bot size={13} />
+                  </div>
+                )}
+
+                <div className={`chat-box-bubble ${msg.isError ? 'bubble-error' : ''}`}>
+                  <div className="bubble-meta">
+                    <span className="bubble-sender">
+                      {msg.role === 'user' ? 'You' : 'Assistant'}
+                    </span>
+                    <span className="bubble-time">{msg.timestamp}</span>
+                    {msg.model && <span className="bubble-model-tag">{msg.model}</span>}
+                    {msg.role === 'assistant' && (
+                      <button
+                        type="button"
+                        className="bubble-copy-btn"
+                        onClick={() => handleCopyChatAnswer(msg.id, msg.content)}
+                        title="Copy answer"
+                      >
+                        {chatCopiedId === msg.id ? (
+                          <Check size={11} color="#10b981" />
+                        ) : (
+                          <Copy size={11} />
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  <div
+                    className="bubble-markdown markdown-body"
+                    dangerouslySetInnerHTML={{ __html: marked.parse(msg.content || '') }}
+                  />
+                </div>
+              </div>
+            ))}
+
+            {/* Loading Indicator */}
+            {chatLoading && (
+              <div className="chat-box-msg-row msg-row-assistant">
+                <div className="chat-box-msg-avatar">
+                  <Bot size={13} />
+                </div>
+                <div className="chat-box-bubble bubble-loading">
+                  <div className="bubble-loading-pulse">
+                    <span className="pulse-dot dot-1" />
+                    <span className="pulse-dot dot-2" />
+                    <span className="pulse-dot dot-3" />
+                  </div>
+                  <span className="bubble-loading-text">
+                    Formulating grounded clarification...
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div ref={chatMessagesEndRef} />
+          </div>
+
+          {/* Footer Input Area */}
+          <div className="chat-box-footer">
+            <form
+              className="chat-box-input-form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                handleSendChatMessage()
+              }}
+            >
+              <div className="chat-box-input-row">
+                <textarea
+                  ref={chatInputRef}
+                  id="floating-chat-textarea"
+                  className="chat-box-textarea"
+                  placeholder={
+                    result?.report
+                      ? 'Ask any doubt about this summary...'
+                      : 'Ask a doubt or question...'
+                  }
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSendChatMessage()
+                    }
+                  }}
+                  rows={1}
+                  disabled={chatLoading}
+                />
+                <button
+                  type="submit"
+                  id="floating-chat-send-btn"
+                  className="chat-box-send-btn"
+                  disabled={chatLoading || !chatInput.trim()}
+                  title="Send question (Enter)"
+                >
+                  {chatLoading ? (
+                    <RefreshCw size={14} className="spinning-sync-icon" />
+                  ) : (
+                    <Send size={14} />
+                  )}
+                </button>
+              </div>
+              <div className="chat-box-hint-row">
+                <span>⚡ Enter to send &bull; Shift+Enter for new line &bull; Grounded AI</span>
+              </div>
+            </form>
+          </div>
+        </aside>
+      )}
+
+      {/* Round Logo Floating Action Button (FAB) */}
+      <div className="floating-fab-container">
+        {/* Hover / Teaser Tooltip */}
+        {!isOpen && (
+          <div className={`floating-fab-tooltip ${tooltipVisible ? 'tooltip-visible' : ''}`}>
+            <Sparkles size={12} color="#38bdf8" />
+            <span>
+              {result?.report
+                ? 'Have doubts on this summary? Chat here!'
+                : 'Chat with AI Research Assistant'}
+            </span>
+          </div>
+        )}
+
+        <button
+          type="button"
+          id="floating-chat-round-btn"
+          className={`floating-round-logo-btn ${isOpen ? 'round-btn-active' : ''}`}
+          onClick={() => setIsOpen(!isOpen)}
+          onMouseEnter={() => setTooltipVisible(true)}
+          onMouseLeave={() => setTooltipVisible(false)}
+          title={isOpen ? 'Close Research Assistant' : 'Open Research Chatbot'}
+          aria-label={isOpen ? 'Close chat' : 'Open chat'}
+        >
+          {/* Animated glow pulse rings when closed */}
+          {!isOpen && <span className="round-btn-pulse-ring" />}
+
+          {/* Round Logo / Mascot inside circular button */}
+          <div className="round-btn-content">
+            {isOpen ? (
+              <X size={26} className="round-btn-x-icon" />
+            ) : (
+              <div className="round-btn-logo-wrap">
+                <MascotLogo size={36} />
+                <span className="round-btn-status-dot" title="Assistant Active" />
+              </div>
+            )}
+          </div>
+
+          {/* Badge counter if there are user inquiries */}
+          {!isOpen && userMessagesCount > 0 && (
+            <span className="round-btn-badge" title={`${userMessagesCount} questions asked`}>
+              {userMessagesCount}
+            </span>
+          )}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
-  // Page Navigation: 'search' | 'report' | 'resources' | 'audit'
+  // Page Navigation: 'search' | 'report' | 'chat' | 'resources' | 'audit'
   const [page, setPage] = useState('search')
 
   const [query, setQuery] = useState('')
@@ -335,6 +664,23 @@ export default function App() {
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState(false)
   const [inspectAgent, setInspectAgent] = useState(null)
+
+  // Floating Chat Assistant State
+  const [chatMessages, setChatMessages] = useState([
+    {
+      id: 'welcome-init',
+      role: 'assistant',
+      content: "Hello! 👋 I'm your **Mini Researcher Assistant**.\n\nOnce you conduct a research topic, I will clarify doubts, unpack complex findings, and answer questions strictly grounded in your synthesis report.\n\nTip: Enter a research query or select a topic to get started!",
+      timestamp: 'Just now'
+    }
+  ])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatCopiedId, setChatCopiedId] = useState(null)
+  const [isChatOpen, setIsChatOpen] = useState(false)
+  const [isChatExpanded, setIsChatExpanded] = useState(false)
+  const chatMessagesEndRef = useRef(null)
+  const chatInputRef = useRef(null)
 
   // Dedicated Resources Page State
   const [resourceSearch, setResourceSearch] = useState('')
@@ -446,13 +792,13 @@ export default function App() {
     }
   }, [loading, currentPipelineSteps.length])
 
-  // Browser hash navigation: supports #search, #documents, #swarm, #report, #resources, #audit
+  // Browser hash navigation: supports #search, #documents, #swarm, #report, #chat, #resources, #audit
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '')
       if (['documents', 'swarm'].includes(hash)) {
         setPage(hash)
-      } else if (['report', 'resources', 'audit'].includes(hash) && result) {
+      } else if (['report', 'chat', 'resources', 'audit'].includes(hash) && result) {
         setPage(hash)
       } else if (hash === 'search' || !hash) {
         setPage('search')
@@ -481,6 +827,123 @@ export default function App() {
     setPage(targetPage)
     window.location.hash = targetPage
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // Auto-scroll chat thread to bottom on update
+  useEffect(() => {
+    if (page === 'chat' && chatMessagesEndRef.current) {
+      chatMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [chatMessages, chatLoading, page])
+
+  const handleSendChatMessage = async (textToSend) => {
+    const messageText = (textToSend !== undefined ? textToSend : chatInput).trim()
+    if (!messageText || chatLoading) return
+    if (!result?.report) {
+      const userMsg = {
+        id: 'user-' + Date.now(),
+        role: 'user',
+        content: messageText,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+      const guidanceMsg = {
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `💡 **Please conduct a research query first!**\n\nI am specialized to clarify doubts, verify facts, and unpack findings from your research synthesis reports. Enter a topic in the search bar or select a suggested topic, and once your synthesis report is generated, I will answer all questions grounded strictly in the verified evidence!`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+      setChatMessages((prev) => [...prev, userMsg, guidanceMsg])
+      setChatInput('')
+      return
+    }
+
+    const userMsg = {
+      id: 'user-' + Date.now(),
+      role: 'user',
+      content: messageText,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+
+    const newMessages = [...chatMessages, userMsg]
+    setChatMessages(newMessages)
+    setChatInput('')
+    setChatLoading(true)
+
+    // Build history for backend (excluding initial greeting)
+    const historyPayload = newMessages
+      .filter((m) => !m.id.startsWith('welcome'))
+      .slice(-8)
+      .map((m) => ({
+        role: m.role,
+        content: m.content
+      }))
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: messageText,
+          summary: result.report,
+          topic: result.topic || query,
+          history: historyPayload,
+          sources: result.sources || []
+        })
+      })
+
+      if (!res.ok) {
+        let errorMsg = 'Failed to get answer from Chat Assistant.'
+        try {
+          const errData = await res.json()
+          if (errData?.detail) errorMsg = errData.detail
+        } catch (_) {}
+        throw new Error(errorMsg)
+      }
+
+      const data = await res.json()
+      const assistantMsg = {
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: data.answer || 'No response returned.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        model: data.model_used,
+        provider: data.provider
+      }
+
+      setChatMessages((prev) => [...prev, assistantMsg])
+    } catch (err) {
+      const errorMsg = {
+        id: 'error-' + Date.now(),
+        role: 'assistant',
+        content: `⚠️ **Unable to answer:** ${err.message || 'Network error occurred.'}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isError: true
+      }
+      setChatMessages((prev) => [...prev, errorMsg])
+      showToast(err.message, 'error')
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  const handleCopyChatAnswer = (id, text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setChatCopiedId(id)
+      setTimeout(() => setChatCopiedId(null), 2000)
+    })
+  }
+
+  const handleClearChat = () => {
+    const welcome = {
+      id: 'welcome-' + Date.now(),
+      role: 'assistant',
+      content: result?.report
+        ? `Hello! I am your **Research Summary Assistant**.\n\nI have thoroughly reviewed the research summary for **"${result.topic || query}"**.\n\nIf you have any doubts, questions about key findings, or need any part explained or clarified, ask me below! *(Note: Answers are strictly grounded in this research summary)*`
+        : `Hello! 👋 I'm your **Mini Researcher Assistant**.\n\nOnce you conduct a research topic, I will clarify doubts, unpack complex findings, and answer questions strictly grounded in your synthesis report.\n\nTip: Enter a research query or select a topic to get started!`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+    setChatMessages([welcome])
+    showToast('Chat history cleared', 'info')
   }
 
   const handleFileUpload = async (files) => {
@@ -607,6 +1070,14 @@ export default function App() {
 
       const data = await response.json()
       setResult(data)
+      const welcomeMsg = {
+        id: 'welcome-' + Date.now(),
+        role: 'assistant',
+        content: `Hello! I am your **Research Summary Assistant**.\n\nI have thoroughly reviewed the research summary for **"${data.topic || q}"**.\n\nIf you have any doubts, questions about key findings, or need any part explained or simplified, ask me below! *(Note: I am strictly specialized to answer doubts regarding this research summary)*`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        model: 'Gemini 3.5 Flash'
+      }
+      setChatMessages([welcomeMsg])
       navigateTo('report')
     } catch (err) {
       setError(err.message || 'An unexpected error occurred.')
@@ -827,9 +1298,9 @@ export default function App() {
   const readingTimeMinutes = Math.max(1, Math.ceil(wordCount / 220))
 
   // =========================================================================
-  // RESEARCH RESULTS PRESENTATION: REPORT, DEDICATED RESOURCES, OR AUDIT
+  // RESEARCH RESULTS PRESENTATION: REPORT, CHAT, DEDICATED RESOURCES, OR AUDIT
   // =========================================================================
-  if ((page === 'report' || page === 'resources' || page === 'audit') && result) {
+  if ((page === 'report' || page === 'chat' || page === 'resources' || page === 'audit') && result) {
     const review = result.review || {
       decision: 'APPROVE',
       overall_score: 0.94,
@@ -847,6 +1318,8 @@ export default function App() {
           navigateTo={navigateTo}
           uploadedDocsCount={uploadedDocs.length}
           result={result}
+          isChatOpen={isChatOpen}
+          setIsChatOpen={setIsChatOpen}
         />
         <div className="app report-page-container">
           {/* Toast Notification */}
@@ -905,6 +1378,17 @@ export default function App() {
               >
                 <FileText size={14} />
                 <span>Synthesis Report</span>
+              </button>
+
+              <button
+                type="button"
+                className={`nav-tab-item ${isChatOpen ? 'nav-tab-active' : ''}`}
+                onClick={() => setIsChatOpen(!isChatOpen)}
+                title="Ask doubts and clarify information in floating chatbot"
+              >
+                <MessageSquare size={14} />
+                <span>Chat Assistant</span>
+                <span className="nav-tab-badge chat-nav-badge">{isChatOpen ? 'Active' : 'Floating'}</span>
               </button>
 
               <button
@@ -1068,6 +1552,59 @@ export default function App() {
                 </button>
               </div>
 
+              {/* Dedicated Chat Assistant Doubts Callout Banner */}
+              <div className="report-chat-callout-banner">
+                <div className="chat-callout-info">
+                  <div className="chat-callout-icon">
+                    <MessageSquare size={22} />
+                  </div>
+                  <div className="chat-callout-text">
+                    <div className="chat-callout-title">
+                      <span>Have Doubts About This Summary?</span>
+                      <span className="chat-callout-pill">Interactive Assistant</span>
+                    </div>
+                    <p className="chat-callout-desc">
+                      Get instant clarification, verify conclusions, or unpack confusing findings with our specialized Research Summary Assistant.
+                    </p>
+                    <div className="chat-callout-quick-chips">
+                      <button
+                        type="button"
+                        className="callout-chip-btn"
+                        onClick={() => {
+                          setIsChatOpen(true)
+                          setTimeout(() => handleSendChatMessage('Can you explain the main conclusions in simple terms?'), 120)
+                        }}
+                      >
+                        <Sparkles size={11} />
+                        <span>"Explain main conclusions simply"</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="callout-chip-btn"
+                        onClick={() => {
+                          setIsChatOpen(true)
+                          setTimeout(() => handleSendChatMessage('What are the key limitations discussed in the summary?'), 120)
+                        }}
+                      >
+                        <Sparkles size={11} />
+                        <span>"Key limitations in summary?"</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn-view-chat-assistant"
+                  onClick={() => setIsChatOpen(true)}
+                  title="Open the Chat Assistant to ask doubts about this summary"
+                >
+                  <MessageSquare size={15} />
+                  <span>Ask Doubts</span>
+                  <ArrowRight size={15} />
+                </button>
+              </div>
+
               {/* Distraction-Free Report Reading Canvas */}
               <article className="report-content-canvas">
                 <div
@@ -1095,6 +1632,26 @@ export default function App() {
                 </button>
               </div>
 
+              {/* End of Report Chat Callout */}
+              <div className="report-end-chat-card">
+                <div className="end-card-left">
+                  <MessageSquare size={20} color="var(--primary-light)" />
+                  <div>
+                    <strong>Have doubts or questions about this research summary?</strong>
+                    <p>Ask the Research Summary Assistant to clarify details, simplify complex terms, or verify findings.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-chat-primary-cta"
+                  onClick={() => setIsChatOpen(true)}
+                >
+                  <MessageSquare size={14} />
+                  <span>Chat with Assistant</span>
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+
               {/* Bottom Navigation & Actions Bar */}
               <div className="report-footer-actions">
                 <button
@@ -1104,6 +1661,15 @@ export default function App() {
                 >
                   <ArrowLeft size={15} />
                   <span>Conduct Another Research</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => setIsChatOpen(true)}
+                >
+                  <MessageSquare size={15} />
+                  <span>Ask Doubts (Chat Assistant)</span>
                 </button>
 
                 <button
@@ -1634,10 +2200,283 @@ export default function App() {
             </div>
           )}
 
+          {/* ================================================================= */}
+          {/* VIEW 4: DEDICATED RESEARCH SUMMARY CHAT ASSISTANT                */}
+          {/* ================================================================= */}
+          {page === 'chat' && (
+            <div className="report-view-fade-in chat-assistant-view">
+              {/* Breadcrumb Navigation */}
+              <div className="resources-breadcrumb">
+                <span onClick={() => navigateTo('search')} className="breadcrumb-link">
+                  Swarm Cockpit
+                </span>
+                <span className="breadcrumb-sep">&gt;</span>
+                <span onClick={() => navigateTo('report')} className="breadcrumb-link">
+                  Synthesis Report
+                </span>
+                <span className="breadcrumb-sep">&gt;</span>
+                <span className="breadcrumb-current">Chat Assistant</span>
+              </div>
+
+              {/* Chat View Hero Header */}
+              <header className="chat-assistant-hero">
+                <div className="chat-hero-meta-row">
+                  <span className="meta-chip meta-chip-docs">
+                    <MessageSquare size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                    Research Summary Assistant
+                  </span>
+                  <span className="meta-chip meta-chip-guardrail" title="Strictly answering doubts and clarifying this specific research report">
+                    <ShieldCheck size={12} style={{ display: 'inline', marginRight: '4px', color: '#10b981' }} />
+                    Strictly Grounded in Summary
+                  </span>
+                  <span className="meta-chip">
+                    ~{readingTimeMinutes} min read summary ({wordCount.toLocaleString()} words)
+                  </span>
+                </div>
+
+                <div className="chat-hero-main-row">
+                  <div>
+                    <h1 className="report-main-title">Summary Doubts &amp; Clarification Assistant</h1>
+                    <p className="chat-hero-description">
+                      Ask any doubts, explore complex claims, or request simplifications regarding your research report on <strong>"{result.topic}"</strong>.
+                    </p>
+                  </div>
+
+                  <div className="chat-hero-actions">
+                    <button
+                      type="button"
+                      className="btn-chat-view-report"
+                      onClick={() => navigateTo('report')}
+                      title="Inspect full markdown research report"
+                    >
+                      <FileText size={14} />
+                      <span>View Full Report</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn-chat-clear"
+                      onClick={handleClearChat}
+                      title="Clear chat conversation history"
+                    >
+                      <Trash2 size={14} />
+                      <span>Clear Chat</span>
+                    </button>
+                  </div>
+                </div>
+              </header>
+
+              {/* Strict Guardrail Scope Banner */}
+              <div className="chat-guardrail-banner">
+                <div className="guardrail-banner-left">
+                  <div className="guardrail-icon-box">
+                    <ShieldCheck size={18} />
+                  </div>
+                  <div className="guardrail-text">
+                    <strong>Strict Boundary Active:</strong>
+                    <span> This assistant is tuned to resolve doubts strictly based on the generated summary for <em>"{result.topic}"</em>. Non-summary or unrelated topics are automatically refused.</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Starter Doubts Quick Suggestions */}
+              <div className="chat-doubt-starters-card">
+                <div className="doubt-starters-header">
+                  <Sparkles size={14} color="var(--primary-light)" />
+                  <span>Suggested Doubts &amp; Inquiries:</span>
+                </div>
+                <div className="doubt-starters-list">
+                  {CHAT_DOUBT_STARTERS.map((starter, sIdx) => (
+                    <button
+                      key={sIdx}
+                      type="button"
+                      className="doubt-starter-chip"
+                      onClick={() => handleSendChatMessage(starter)}
+                      disabled={chatLoading}
+                    >
+                      <span>{starter}</span>
+                      <ArrowRight size={12} className="doubt-chip-arrow" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Chat Conversation Thread */}
+              <div className="chat-thread-container" id="chat-thread-scroll">
+                {chatMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`chat-bubble-row chat-row-${msg.role}`}
+                  >
+                    <div className={`chat-avatar-badge chat-avatar-${msg.role}`}>
+                      {msg.role === 'user' ? (
+                        <User size={16} />
+                      ) : (
+                        <Bot size={16} />
+                      )}
+                    </div>
+
+                    <div className="chat-bubble-card">
+                      <div className="chat-bubble-meta">
+                        <span className="chat-sender-label">
+                          {msg.role === 'user' ? 'You' : 'Research Summary Assistant'}
+                        </span>
+                        <span className="chat-bubble-time">{msg.timestamp}</span>
+                        {msg.model && (
+                          <span className="chat-model-tag">{msg.model}</span>
+                        )}
+                        {msg.role === 'assistant' && (
+                          <button
+                            type="button"
+                            className="chat-action-btn"
+                            onClick={() => handleCopyChatAnswer(msg.id, msg.content)}
+                            title="Copy answer text"
+                          >
+                            {chatCopiedId === msg.id ? (
+                              <>
+                                <Check size={12} color="#10b981" />
+                                <span style={{ color: '#10b981' }}>Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={12} />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+
+                      <div
+                        className="chat-bubble-text markdown-body"
+                        dangerouslySetInnerHTML={{ __html: marked.parse(msg.content || '') }}
+                      />
+                    </div>
+                  </div>
+                ))}
+
+                {chatLoading && (
+                  <div className="chat-bubble-row chat-row-assistant">
+                    <div className="chat-avatar-badge chat-avatar-assistant">
+                      <Bot size={16} />
+                    </div>
+                    <div className="chat-bubble-card chat-bubble-loading">
+                      <div className="chat-loading-pulse">
+                        <span className="pulse-dot dot-1"></span>
+                        <span className="pulse-dot dot-2"></span>
+                        <span className="pulse-dot dot-3"></span>
+                      </div>
+                      <span className="chat-loading-label">
+                        Consulting research summary &amp; formulating grounded clarification...
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div ref={chatMessagesEndRef} />
+              </div>
+
+              {/* Chat Input Dock */}
+              <div className="chat-input-dock">
+                <form
+                  className="chat-input-form"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    handleSendChatMessage()
+                  }}
+                >
+                  <div className="chat-input-box">
+                    <textarea
+                      id="chat-user-input"
+                      className="chat-textarea"
+                      placeholder="Ask any doubt or question about this research summary... (Press Enter to send, Shift+Enter for newline)"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          handleSendChatMessage()
+                        }
+                      }}
+                      rows={2}
+                      disabled={chatLoading}
+                    />
+                    <button
+                      type="submit"
+                      id="chat-submit-btn"
+                      className="btn-chat-send"
+                      disabled={chatLoading || !chatInput.trim()}
+                      title="Send question to Assistant"
+                    >
+                      {chatLoading ? (
+                        <RefreshCw size={16} className="spinning-sync-icon" />
+                      ) : (
+                        <Send size={16} />
+                      )}
+                      <span>Send</span>
+                    </button>
+                  </div>
+                  <div className="chat-input-footer-hint">
+                    <span>⚡ <strong>Grounded AI:</strong> Answers are strictly confined to the summary of <em>"{result.topic}"</em>.</span>
+                  </div>
+                </form>
+              </div>
+
+              {/* Bottom Navigation */}
+              <div className="report-footer-actions" style={{ marginTop: '2rem' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => navigateTo('report')}
+                >
+                  <FileText size={15} />
+                  <span>Return to Synthesis Report</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => navigateTo('resources')}
+                >
+                  <BookOpen size={15} />
+                  <span>Inspect Curated Evidence ({result.sources?.length || 0})</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => navigateTo('audit')}
+                >
+                  <ShieldCheck size={15} />
+                  <span>View Grounding Audit</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Universal Footer */}
           <footer className="footer">
             <p>Mini Researcher &bull; Multi-Agent Swarm (Manager, Research, Document, Curator, Writer, Reviewer)</p>
           </footer>
+
+          {/* Floating Chatbot Assistant Widget (Round Logo FAB & Small Box Window) */}
+          <FloatingChatWidget
+            isOpen={isChatOpen}
+            setIsOpen={setIsChatOpen}
+            isExpanded={isChatExpanded}
+            setIsExpanded={setIsChatExpanded}
+            chatMessages={chatMessages}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            chatLoading={chatLoading}
+            chatCopiedId={chatCopiedId}
+            chatInputRef={chatInputRef}
+            chatMessagesEndRef={chatMessagesEndRef}
+            handleSendChatMessage={handleSendChatMessage}
+            handleCopyChatAnswer={handleCopyChatAnswer}
+            handleClearChat={handleClearChat}
+            result={result}
+          />
         </div>
       </div>
     )
@@ -1653,6 +2492,8 @@ export default function App() {
         navigateTo={navigateTo}
         uploadedDocsCount={uploadedDocs.length}
         result={result}
+        isChatOpen={isChatOpen}
+        setIsChatOpen={setIsChatOpen}
       />
 
       <div className="app">
@@ -2366,6 +3207,25 @@ export default function App() {
         <footer className="footer">
           <p>Mini Researcher &copy; 2026 &bull; Multi-Agent Swarm powered by Google Gemini (3.6 / 3.7 / 3.8 Flash), Tavily, &amp; ChromaDB</p>
         </footer>
+
+        {/* Floating Chatbot Assistant Widget (Round Logo FAB & Small Box Window) */}
+        <FloatingChatWidget
+          isOpen={isChatOpen}
+          setIsOpen={setIsChatOpen}
+          isExpanded={isChatExpanded}
+          setIsExpanded={setIsChatExpanded}
+          chatMessages={chatMessages}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          chatLoading={chatLoading}
+          chatCopiedId={chatCopiedId}
+          chatInputRef={chatInputRef}
+          chatMessagesEndRef={chatMessagesEndRef}
+          handleSendChatMessage={handleSendChatMessage}
+          handleCopyChatAnswer={handleCopyChatAnswer}
+          handleClearChat={handleClearChat}
+          result={result}
+        />
       </div>
     </div>
   )

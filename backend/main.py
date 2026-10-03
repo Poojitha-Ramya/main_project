@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Response, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from backend.agents import AgentOrchestrator, DocumentLoader
+from backend.agents import AgentOrchestrator, DocumentLoader, SummaryChatAgent
 from backend.rag import RAGPipeline
 from backend.config import config
 from backend.pdf_export import build_pdf_report
@@ -37,6 +37,7 @@ CHROMA_DIR = str(Path(__file__).resolve().parent / "chroma_db")
 rag_pipeline = RAGPipeline(collection_name="research_chunks", persist_directory=CHROMA_DIR)
 doc_loader = DocumentLoader()
 coordinator = AgentOrchestrator(rag_pipeline=rag_pipeline)
+chat_assistant = SummaryChatAgent()
 
 # In-memory session store for active user-uploaded documents
 uploaded_documents_store: List[Dict[str, Any]] = []
@@ -186,6 +187,56 @@ async def start_research(payload: ResearchRequest):
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Research failed: {str(e)}")
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=1, description="User question or doubt regarding the research summary")
+    summary: str = Field(..., min_length=1, description="The research summary report content")
+    topic: Optional[str] = Field("Research Summary", description="Topic of the research report")
+    history: Optional[List[Dict[str, str]]] = Field(default=[], description="Previous conversation turns")
+    sources: Optional[List[Dict[str, Any]]] = Field(default=[], description="Sources associated with the research")
+    model: Optional[str] = Field(None, description="Optional target model")
+
+
+@app.post("/api/chat")
+async def chat_with_summary_assistant(payload: ChatRequest):
+    """
+    Clarifies doubts and answers questions strictly based on the generated research summary.
+    Enforces strict guardrails: only answers about the research summary, and politely redirects out-of-scope questions.
+    Only available after research summary has been generated.
+    """
+    q = payload.question.strip()
+    summary = payload.summary.strip()
+
+    if not summary:
+        raise HTTPException(
+            status_code=400,
+            detail="Chat Assistant is only available after a research summary is generated. Please run research first."
+        )
+    if not q:
+        raise HTTPException(
+            status_code=400,
+            detail="Question cannot be empty."
+        )
+
+    try:
+        response = chat_assistant.answer_question(
+            question=q,
+            summary=summary,
+            topic=payload.topic or "Research Summary",
+            history=payload.history or [],
+            sources=payload.sources or [],
+            model=payload.model
+        )
+        return response
+    except HTTPException:
+        raise
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Chat assistant failed: {str(e)}")
 
 
 class ExportPdfRequest(BaseModel):
